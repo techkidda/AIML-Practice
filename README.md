@@ -53,3 +53,62 @@ to provision a deployment in the background.
 Application events are written to `logs/app.log` and the console. The active
 log rotates at local midnight or 30 MiB, whichever occurs first, and retains
 up to seven rotated files.
+
+
+## Create venv
+
+Bash
+### 1. Install Python 3 and venv support (if not already installed)
+sudo dnf install -y python3 python3-pip
+
+### 2. Navigate to your project directory
+cd /path/to/your/project
+
+### 3. Create the virtual environment (named 'venv')
+python3 -m venv venv
+
+### 4. Activate the virtual environment
+source venv/bin/activate
+
+### 5. Verify activation (should point to project's venv)
+which python
+
+### 6. Deactivate when finished
+deactivate
+
+## Windows
+### 1. Install Python 3 and venv support (if not already installed)
+sudo dnf install -y python3 python3-pip
+
+### 2. Navigate to your project directory
+cd /path/to/your/project
+
+### 3. Create the virtual environment (named 'venv')
+python3 -m venv venv
+
+### 4. Activate the virtual environment
+source venv/bin/activate
+
+### 5. Verify activation (should point to project's venv)
+which python
+
+### 6. Deactivate when finished
+deactivate
+
+
+## Bash
+
+### 1. Navigate to your project directory
+cd /path/to/your/project
+
+### 2. Create the virtual environment
+python3 -m venv venv
+
+### 3. Activate the virtual environment
+source venv/bin/activate
+
+### 4. Verify activation
+which python
+
+### 5. Deactivate when finished
+deactivate
