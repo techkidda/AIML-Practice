@@ -114,6 +114,9 @@ false negatives for the reference dataset.
   CSV without retraining. The original source `ID` column is ignored if present.
 - Choose a model and view its metrics, confusion matrix, and classification
   report.
+- The comparison table shows Accuracy, AUC, Precision, Recall, F1, and MCC by
+  default. Additional metrics, cross-validation summaries, and tuned parameters
+  can be added with optional checkboxes.
 - Run training and holdout experiments on a public CSV URL, choose an eligible
   target column, and select which models to train.
 - Generate per-model performance observations and select a preferred generic

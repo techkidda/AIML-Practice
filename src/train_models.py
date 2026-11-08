@@ -43,7 +43,11 @@ def train_and_save(slug: str) -> dict[str, Any]:
 
     x_train, x_test, y_train, y_test = split_reference_dataset()
     pipeline, cross_validation, best_parameters = fit_with_cross_validation(
-        slug, classifier, x_train, y_train
+        slug,
+        classifier,
+        x_train,
+        y_train,
+        prefer_malignant_recall=True,
     )
 
     artifact_directory = PROJECT_ROOT / "models"

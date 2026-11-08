@@ -40,7 +40,12 @@ MODEL_PARAMETER_GRIDS: dict[str, dict[str, list[Any]]] = {
 
 
 def fit_with_cross_validation(
-    slug: str, classifier: Any, features: pd.DataFrame, target: pd.Series
+    slug: str,
+    classifier: Any,
+    features: pd.DataFrame,
+    target: pd.Series,
+    *,
+    prefer_malignant_recall: bool = False,
 ) -> tuple[Any, dict[str, dict[str, float]], dict[str, Any]]:
     """Tune on stratified training folds and refit the selected pipeline."""
     minimum_class_size = int(target.value_counts().min())
@@ -64,7 +69,9 @@ def fit_with_cross_validation(
         "MCC": make_scorer(matthews_corrcoef),
     }
     malignant_recall = (
-        len(target.unique()) == 2 and "M" in set(target.astype(str).unique())
+        prefer_malignant_recall
+        and len(target.unique()) == 2
+        and "M" in set(target.astype(str).unique())
     )
     if malignant_recall:
         scoring["Malignant Recall (M)"] = make_scorer(

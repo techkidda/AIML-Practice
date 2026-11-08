@@ -39,6 +39,7 @@ class ModelSelectionTests(unittest.TestCase):
             SupportVectorMachineModel.build(),
             features,
             target,
+            prefer_malignant_recall=True,
         )
 
         self.assertIn("classifier__C", parameters)

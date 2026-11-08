@@ -27,6 +27,7 @@ from src.dataset import (
 )
 from src.logging_config import configure_logging
 from src.metrics import evaluate_predictions
+from src.model_report import build_model_observations
 from src.model_registry import MODEL_DEFINITIONS, ModelDefinition
 from src.public_datasets import (
     CUSTOM_DATASET_OPTION,
@@ -387,33 +388,73 @@ def show_results(
             )
 
     st.subheader("Model comparison")
-    comparison_results = results.drop(columns=["Tuned parameters"], errors="ignore")
+    core_columns = [
+        "ML Model Name",
+        "Accuracy",
+        "AUC",
+        "Precision",
+        "Recall",
+        "F1",
+        "MCC",
+    ]
+    optional_columns = [
+        column for column in results.columns if column not in core_columns
+    ]
+    selected_optional_columns = []
+    if optional_columns:
+        with st.expander("Optional comparison columns"):
+            st.caption(
+                "The main table shows the six required metrics. Select any "
+                "additional columns you want to include."
+            )
+            checkbox_columns = st.columns(3)
+            for index, column in enumerate(optional_columns):
+                with checkbox_columns[index % len(checkbox_columns)]:
+                    if st.checkbox(
+                        column,
+                        value=False,
+                        key=f"comparison_column_{column}",
+                    ):
+                        selected_optional_columns.append(column)
+
+    comparison_columns = [
+        *core_columns,
+        *selected_optional_columns,
+    ]
+    comparison_results = results[comparison_columns]
+    numeric_columns = [
+        "Accuracy",
+        "AUC",
+        "Precision",
+        "Recall",
+        "F1",
+        "MCC",
+        *(
+            column
+            for column in selected_optional_columns
+            if column == "Malignant Recall (M)"
+        ),
+    ]
     st.dataframe(
         comparison_results.style.format(
-            {
-                name: "{:.3f}"
-                for name in (
-                    "Accuracy",
-                    "AUC",
-                    "Precision",
-                    "Recall",
-                    "F1",
-                    "MCC",
-                    "Malignant Recall (M)",
-                )
-            },
+            {name: "{:.3f}" for name in numeric_columns},
             na_rep="N/A",
         ),
         width="stretch",
         hide_index=True,
     )
-    if "Tuned parameters" in results:
-        with st.expander("Selected hyperparameters"):
-            st.dataframe(
-                results[["ML Model Name", "Tuned parameters"]],
-                width="stretch",
-                hide_index=True,
-            )
+    if not reference:
+        observations, winner_name, winner_summary = build_model_observations(results)
+        st.subheader("Model observations")
+        st.dataframe(observations, width="stretch", hide_index=True)
+        st.markdown("#### Overall preferred model")
+        st.success(winner_summary)
+        st.caption(
+            f"Selection is based on training-fold CV macro-F1, not the holdout. "
+            f"The holdout result for {winner_name} is reported as an independent "
+            "final evaluation; small score differences do not establish statistical "
+            "significance."
+        )
 
     selected_name = st.selectbox("Inspect results for a model", list(details))
     model, matrix, labels = details[selected_name]
@@ -503,11 +544,10 @@ if mode == "User Guide — How to use":
             "1. Keep the included test data, or upload a labeled CSV.\n"
             "2. For an upload, include the same 30 feature columns and the "
             "`Diagnosis` target (`M` or `B`). An extra `ID` column is ignored.\n"
-            "3. Compare the holdout metrics with the saved training-fold "
-            "cross-validation mean ± std columns.\n"
-            "4. Expand **Selected hyperparameters** to see the settings chosen "
-            "for each saved model.\n"
-            "5. Choose a model to inspect its confusion matrix and classification "
+            "3. The comparison table shows Accuracy, AUC, Precision, Recall, F1, "
+            "and MCC by default. Expand **Optional comparison columns** and check "
+            "any extra metrics or model details you want to display.\n"
+            "4. Choose a model to inspect its confusion matrix and classification "
             "report. This workflow scores the saved models and does not tune or "
             "retrain them."
         )
@@ -540,8 +580,13 @@ if mode == "User Guide — How to use":
         "help compare model stability; the holdout is reserved for final evaluation. "
         "For the Wisconsin dataset, malignant recall selects tuned settings; other "
         "datasets use macro F1.\n"
-        "- Expand **Selected hyperparameters** below the results table to inspect "
-        "the best settings found for each model.\n"
+        "- After an experiment, the generated **Model observations** table summarizes "
+        "each model's CV and holdout results. The **Overall preferred model** is "
+        "selected by the highest mean training-fold macro-F1; this is a practical "
+        "criterion, not a significance test.\n"
+        "- The comparison table always starts with Accuracy, AUC, Precision, "
+        "Recall, F1, and MCC. Expand **Optional comparison columns** and check "
+        "additional CV summaries or tuned parameters to add them to the table.\n"
         "- Preprocessing (missing-value imputation, categorical encoding, and "
         "numeric scaling) is fitted using training data only.\n"
         "- Each checked model is trained when you click **Run selected models**. "
