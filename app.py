@@ -72,6 +72,52 @@ def validate_labeled_data(
     return features, target
 
 
+def read_public_csv(url: str) -> pd.DataFrame:
+    parsed = urlparse(url.strip())
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Enter a public HTTPS URL to a direct CSV file.")
+
+    try:
+        resolved_addresses = {
+            entry[4][0]
+            for entry in socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)
+        }
+    except socket.gaierror as error:
+        raise ValueError("The dataset host could not be resolved.") from error
+    if not resolved_addresses or any(
+        not ipaddress.ip_address(address).is_global for address in resolved_addresses
+    ):
+        raise ValueError("The dataset URL must resolve only to public IP addresses.")
+
+    try:
+        with requests.get(
+            url.strip(),
+            timeout=(5, 20),
+            allow_redirects=False,
+            stream=True,
+            headers={"User-Agent": "ClassificationModelLab/1.0"},
+        ) as response:
+            if response.is_redirect:
+                raise ValueError("Redirecting dataset URLs are not supported; use the final CSV URL.")
+            response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length and int(content_length) > MAX_REMOTE_DATASET_BYTES:
+                raise ValueError("The CSV is larger than the 10 MiB download limit.")
+            payload = bytearray()
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                payload.extend(chunk)
+                if len(payload) > MAX_REMOTE_DATASET_BYTES:
+                    raise ValueError("The CSV is larger than the 10 MiB download limit.")
+    except requests.RequestException as error:
+        raise ValueError(f"Could not download the dataset: {error}") from error
+
+    try:
+        return pd.read_csv(BytesIO(payload))
+    except (pd.errors.ParserError, UnicodeDecodeError) as error:
+        raise ValueError("The URL did not return a readable CSV file.") from error
+
+
+
 
 st.title("Classification Model Lab")
 st.markdown(
