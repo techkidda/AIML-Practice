@@ -31,13 +31,9 @@ smoothness, compactness, concavity, concave points, symmetry, and fractal
 dimension—recorded as mean, standard error, and worst values.
 
 
-## c. GitHub repository link
-
-[techkidda/AIML-Practice](https://github.com/techkidda/AIML-Practice)
-
 ## Live Streamlit app
 
-The app is **not deployed yet**, so there is no live app URL to share. See
+The app is **deployed ** at [Web-App] (https://gaurav-patil-ml-assignment-2.streamlit.app/) , so there is no live app URL to share. See
 [Streamlit Community Cloud deployment](#streamlit-community-cloud-deployment)
 for the manual deployment steps.
 
