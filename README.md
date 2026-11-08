@@ -1,5 +1,3 @@
-## README.md content
-
 # Classification Models: Wisconsin Diagnostic Dataset
 
 ## Problem statement
@@ -29,3 +27,29 @@ The app has not been deployed yet. After pushing this repository, deploy
 `app.py` from <https://share.streamlit.io/> using the steps below.
 
 ## Execution screenshot
+
+## Run locally
+
+```powershell
+python -m pip install -r requirements.txt
+python -m src.train_models
+streamlit run app.py
+```
+
+Upload a labeled CSV with the same feature columns and target column to evaluate
+the saved reference models. The app also supports a public HTTPS CSV URL for a
+separate train/holdout experiment on a user-selected dataset.
+
+## Streamlit Community Cloud deployment
+
+Push this repository to GitHub, sign in at
+<https://share.streamlit.io/>, choose **Create app**, select this repository,
+branch, and `app.py`, then deploy. Streamlit Community Cloud currently requires
+this account-authorized flow; the app does not collect credentials or attempt
+to provision a deployment in the background.
+
+## Logging
+
+Application events are written to `logs/app.log` and the console. The active
+log rotates at local midnight or 30 MiB, whichever occurs first, and retains
+up to seven rotated files.

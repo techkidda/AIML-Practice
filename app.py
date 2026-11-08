@@ -117,6 +117,139 @@ def read_public_csv(url: str) -> pd.DataFrame:
         raise ValueError("The URL did not return a readable CSV file.") from error
 
 
+@st.cache_resource
+def load_saved_model(slug: str, modified_ns: int):
+    del modified_ns
+    artifact_path = PROJECT_ROOT / "models" / f"{slug}.joblib"
+    if not artifact_path.is_file():
+        raise FileNotFoundError(
+            f"Saved artifact {artifact_path.name} is missing. Run `python -m src.train_models`."
+        )
+    return joblib.load(artifact_path)
+
+
+def evaluate_all(
+    dataset: pd.DataFrame,
+    target_column: str,
+    reference: bool,
+) -> tuple[pd.DataFrame, dict[str, tuple[object, object, list[object]]]]:
+    expected_features = (
+        load_reference_dataset().drop(columns=TARGET_COLUMN).columns.tolist()
+        if reference
+        else None
+    )
+    features, target = validate_labeled_data(dataset, target_column, expected_features)
+    if reference:
+        evaluation_features, evaluation_target = features, target
+        x_train = y_train = None
+    else:
+        class_counts = target.value_counts()
+        if class_counts.min() < 3:
+            raise ValueError(
+                "For a stratified train/holdout experiment, each target class needs "
+                "at least 3 rows."
+            )
+        x_train, evaluation_features, y_train, evaluation_target = train_test_split(
+            features,
+            target,
+            test_size=0.2,
+            random_state=RANDOM_STATE,
+            stratify=target,
+        )
+
+    rows = []
+    details: dict[str, tuple[object, object, list[object]]] = {}
+    for definition in MODEL_DEFINITIONS:
+        if reference:
+            artifact_path = PROJECT_ROOT / "models" / f"{definition.slug}.joblib"
+            model = load_saved_model(definition.slug, artifact_path.stat().st_mtime_ns)
+            unseen_classes = set(evaluation_target.unique()) - set(model.classes_)
+            if unseen_classes:
+                raise ValueError(
+                    "Uploaded target contains classes not present in the saved models: "
+                    + ", ".join(sorted(map(str, unseen_classes)))
+                )
+        else:
+            module = importlib.import_module(definition.module)
+            classifier = getattr(module, definition.class_name)().build()
+            model = build_pipeline(classifier, x_train).fit(x_train, y_train)
+
+        model_metrics, matrix, labels = evaluate_predictions(
+            model, evaluation_features, evaluation_target
+        )
+        rows.append({"ML Model Name": definition.display_name, **model_metrics})
+        details[definition.display_name] = (model, matrix, labels)
+    return pd.DataFrame(rows), details
+
+
+def show_results(
+    dataset: pd.DataFrame,
+    target_column: str,
+    reference: bool,
+) -> None:
+    results, details = evaluate_all(dataset, target_column, reference)
+    evaluated_rows = int(next(iter(details.values()))[1].sum())
+    LOGGER.info(
+        "Evaluated %d models on %d holdout rows from a %d-row dataset (reference=%s)",
+        len(details),
+        evaluated_rows,
+        len(dataset),
+        reference,
+    )
+    st.subheader("Model comparison")
+    st.dataframe(
+        results.style.format(
+            {name: "{:.3f}" for name in ("Accuracy", "AUC", "Precision", "Recall", "F1", "MCC")},
+            na_rep="N/A",
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+
+    selected_name = st.selectbox("Inspect a model", list(details))
+    model, matrix, labels = details[selected_name]
+    left, right = st.columns(2)
+    with left:
+        st.markdown(f"#### {selected_name}: confusion matrix")
+        figure, axis = plt.subplots(figsize=(5, 4))
+        image = axis.imshow(matrix, cmap="Blues")
+        figure.colorbar(image, ax=axis)
+        axis.set(
+            xticks=range(len(labels)),
+            yticks=range(len(labels)),
+            xticklabels=[str(label) for label in labels],
+            yticklabels=[str(label) for label in labels],
+            xlabel="Predicted label",
+            ylabel="True label",
+        )
+        axis.tick_params(axis="x", labelrotation=25)
+        for row_index in range(matrix.shape[0]):
+            for column_index in range(matrix.shape[1]):
+                axis.text(column_index, row_index, str(matrix[row_index, column_index]), ha="center", va="center")
+        figure.tight_layout()
+        st.pyplot(figure)
+        plt.close(figure)
+    with right:
+        st.markdown(f"#### {selected_name}: classification report")
+        model_features, model_target = validate_labeled_data(dataset, target_column)
+        if not reference:
+            _, model_features, _, model_target = train_test_split(
+                model_features,
+                model_target,
+                test_size=0.2,
+                random_state=RANDOM_STATE,
+                stratify=model_target,
+            )
+        predictions = model.predict(model_features)
+        st.code(
+            classification_report(
+                model_target,
+                predictions,
+                labels=labels,
+                zero_division=0,
+            ),
+            language="text",
+        )
 
 
 st.title("Classification Model Lab")
