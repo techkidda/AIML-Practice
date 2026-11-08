@@ -4,6 +4,8 @@ import importlib
 import ipaddress
 import logging
 import socket
+import time
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,8 +21,15 @@ from sklearn.model_selection import train_test_split
 from src.dataset import PROJECT_ROOT, TARGET_COLUMN, load_reference_dataset
 from src.logging_config import configure_logging
 from src.metrics import evaluate_predictions
-from src.model_registry import MODEL_DEFINITIONS
+from src.model_registry import MODEL_DEFINITIONS, ModelDefinition
+from src.public_datasets import (
+    CUSTOM_DATASET_OPTION,
+    DATASET_BY_LABEL,
+    PUBLIC_DATASETS,
+)
 from src.preprocessing import build_pipeline
+from src.progress import estimate_remaining_seconds, format_duration
+from src.target_columns import assess_target_columns
 
 LOGGER = logging.getLogger("ml_practice.app")
 MAX_REMOTE_DATASET_BYTES = 10 * 1024 * 1024
@@ -33,6 +42,14 @@ st.set_page_config(
 )
 
 LOGGER = configure_logging()
+
+
+def apply_selected_dataset_url() -> None:
+    selected_label = st.session_state["dataset_preset"]
+    if selected_label != CUSTOM_DATASET_OPTION:
+        st.session_state["dataset_url_input"] = DATASET_BY_LABEL[
+            selected_label
+        ].url
 
 
 def validate_labeled_data(
@@ -132,6 +149,8 @@ def evaluate_all(
     dataset: pd.DataFrame,
     target_column: str,
     reference: bool,
+    progress_callback: Callable[[str, int, str, float | None], None] | None = None,
+    model_definitions: tuple[ModelDefinition, ...] = MODEL_DEFINITIONS,
 ) -> tuple[pd.DataFrame, dict[str, tuple[object, object, list[object]]]]:
     expected_features = (
         load_reference_dataset().drop(columns=TARGET_COLUMN).columns.tolist()
@@ -159,26 +178,40 @@ def evaluate_all(
 
     rows = []
     details: dict[str, tuple[object, object, list[object]]] = {}
-    for definition in MODEL_DEFINITIONS:
-        if reference:
-            artifact_path = PROJECT_ROOT / "models" / f"{definition.slug}.joblib"
-            model = load_saved_model(definition.slug, artifact_path.stat().st_mtime_ns)
-            unseen_classes = set(evaluation_target.unique()) - set(model.classes_)
-            if unseen_classes:
-                raise ValueError(
-                    "Uploaded target contains classes not present in the saved models: "
-                    + ", ".join(sorted(map(str, unseen_classes)))
-                )
-        else:
-            module = importlib.import_module(definition.module)
-            classifier = getattr(module, definition.class_name)().build()
-            model = build_pipeline(classifier, x_train).fit(x_train, y_train)
+    for model_index, definition in enumerate(model_definitions, start=1):
+        model_started_at = time.perf_counter()
+        model_completed = False
+        if progress_callback is not None:
+            progress_callback("started", model_index, definition.display_name, None)
+        try:
+            if reference:
+                artifact_path = PROJECT_ROOT / "models" / f"{definition.slug}.joblib"
+                model = load_saved_model(definition.slug, artifact_path.stat().st_mtime_ns)
+                unseen_classes = set(evaluation_target.unique()) - set(model.classes_)
+                if unseen_classes:
+                    raise ValueError(
+                        "Uploaded target contains classes not present in the saved models: "
+                        + ", ".join(sorted(map(str, unseen_classes)))
+                    )
+            else:
+                module = importlib.import_module(definition.module)
+                classifier = getattr(module, definition.class_name)().build()
+                model = build_pipeline(classifier, x_train).fit(x_train, y_train)
 
-        model_metrics, matrix, labels = evaluate_predictions(
-            model, evaluation_features, evaluation_target
-        )
-        rows.append({"ML Model Name": definition.display_name, **model_metrics})
-        details[definition.display_name] = (model, matrix, labels)
+            model_metrics, matrix, labels = evaluate_predictions(
+                model, evaluation_features, evaluation_target
+            )
+            rows.append({"ML Model Name": definition.display_name, **model_metrics})
+            details[definition.display_name] = (model, matrix, labels)
+            model_completed = True
+        finally:
+            if progress_callback is not None:
+                progress_callback(
+                    "finished" if model_completed else "failed",
+                    model_index,
+                    definition.display_name,
+                    time.perf_counter() - model_started_at,
+                )
     return pd.DataFrame(rows), details
 
 
@@ -186,16 +219,127 @@ def show_results(
     dataset: pd.DataFrame,
     target_column: str,
     reference: bool,
+    model_definitions: tuple[ModelDefinition, ...] = MODEL_DEFINITIONS,
+    cache_key: tuple[object, ...] | None = None,
 ) -> None:
-    results, details = evaluate_all(dataset, target_column, reference)
-    evaluated_rows = int(next(iter(details.values()))[1].sum())
-    LOGGER.info(
-        "Evaluated %d models on %d holdout rows from a %d-row dataset (reference=%s)",
-        len(details),
-        evaluated_rows,
-        len(dataset),
-        reference,
-    )
+    cached_result = st.session_state.get("generic_evaluation_result")
+    if (
+        not reference
+        and cache_key is not None
+        and cached_result is not None
+        and cached_result[0] == cache_key
+    ):
+        results, details = cached_result[1], cached_result[2]
+    else:
+        results = None
+        details = None
+
+    total_models = len(model_definitions)
+    completed_model_seconds: list[float] = []
+    if results is None or details is None:
+        evaluation_started_at = time.perf_counter()
+        initial_estimate = (
+            "Approximate duration: seconds to a few minutes, depending on dataset size "
+            "and feature types. The ETA updates after the first model."
+        )
+        progress_bar = st.progress(0, text=initial_estimate)
+        status = st.status("Preparing the train/holdout split...", expanded=True)
+
+        def update_progress(
+            stage: str,
+            model_index: int,
+            model_name: str,
+            model_duration: float | None,
+        ) -> None:
+            elapsed = format_duration(time.perf_counter() - evaluation_started_at)
+            if stage == "started":
+                estimated_remaining = estimate_remaining_seconds(
+                    completed_model_seconds,
+                    total_models - model_index + 1,
+                )
+                eta_text = (
+                    f"Approx. {format_duration(estimated_remaining)} remaining "
+                    "(including current model)"
+                    if estimated_remaining is not None
+                    else "ETA estimating from the first model"
+                )
+                status.update(
+                    label=(
+                        f"{'Scoring saved' if reference else 'Training and evaluating'} "
+                        f"{model_name} ({model_index}/{total_models}) — "
+                        f"{eta_text}; elapsed {elapsed}"
+                    ),
+                    state="running",
+                )
+                progress_bar.progress(
+                    (model_index - 1) / total_models,
+                    text=f"{model_name}: in progress · {eta_text} · elapsed {elapsed}",
+                )
+                return
+
+            if stage == "failed":
+                progress_bar.progress(
+                    (model_index - 1) / total_models,
+                    text=f"{model_name} did not complete · elapsed {elapsed}",
+                )
+                status.update(
+                    label=f"{model_name} failed ({model_index}/{total_models}).",
+                    state="error",
+                )
+                return
+
+            assert model_duration is not None
+            completed_model_seconds.append(model_duration)
+            estimated_remaining = estimate_remaining_seconds(
+                completed_model_seconds,
+                total_models - model_index,
+            )
+            eta_text = (
+                "All models complete"
+                if estimated_remaining == 0
+                else f"Approx. {format_duration(estimated_remaining)} remaining"
+            )
+            progress_bar.progress(
+                model_index / total_models,
+                text=f"Completed {model_name} ({model_index}/{total_models}) · {eta_text}",
+            )
+            status.update(
+                label=(
+                    f"Completed {model_name} ({model_index}/{total_models}) — "
+                    f"{eta_text}; elapsed {elapsed}"
+                ),
+                state="complete" if model_index == total_models else "running",
+            )
+
+        try:
+            results, details = evaluate_all(
+                dataset,
+                target_column,
+                reference,
+                progress_callback=update_progress,
+                model_definitions=model_definitions,
+            )
+        except (FileNotFoundError, OSError, ValueError, pd.errors.ParserError):
+            status.update(label="Evaluation could not be completed.", state="error")
+            raise
+
+        evaluated_rows = int(next(iter(details.values()))[1].sum())
+        elapsed = format_duration(time.perf_counter() - evaluation_started_at)
+        LOGGER.info(
+            "Evaluated %d models on %d holdout rows from a %d-row dataset in %s (reference=%s)",
+            len(details),
+            evaluated_rows,
+            len(dataset),
+            elapsed,
+            reference,
+        )
+        if not reference and cache_key is not None:
+            st.session_state["generic_evaluation_result"] = (
+                cache_key,
+                results,
+                details,
+            )
+
     st.subheader("Model comparison")
     st.dataframe(
         results.style.format(
@@ -206,7 +350,7 @@ def show_results(
         hide_index=True,
     )
 
-    selected_name = st.selectbox("Inspect a model", list(details))
+    selected_name = st.selectbox("Inspect results for a model", list(details))
     model, matrix, labels = details[selected_name]
     left, right = st.columns(2)
     with left:
@@ -264,7 +408,10 @@ mode = st.sidebar.radio(
 )
 
 if mode == "Saved reference models":
-    st.sidebar.caption("Pre-trained models are loaded as-is; uploaded test data is never used for training.")
+    st.sidebar.caption(
+        "Saved pre-trained models are loaded as-is. This workflow does not retrain them; "
+        "uploaded test data is used only for scoring."
+    )
     uploaded_file = st.file_uploader("Upload labeled test data (CSV)", type=["csv"])
     try:
         if uploaded_file is None:
@@ -282,19 +429,48 @@ if mode == "Saved reference models":
 elif mode == "Experiment with a dataset URL":
     st.sidebar.caption(
         "This workflow fits models on 80% of the supplied dataset and reports metrics "
-        "on its stratified 20% holdout. It does not change the saved reference models."
+        "on its stratified 20% holdout. Select the models to fit; all five are selected "
+        "by default. This does not change the saved reference models."
+    )
+    dataset_options = [
+        CUSTOM_DATASET_OPTION,
+        *(dataset.option_label for dataset in PUBLIC_DATASETS),
+    ]
+    st.selectbox(
+        "Choose a sample classification dataset (each has 12+ features and 600+ rows)",
+        dataset_options,
+        key="dataset_preset",
+        on_change=apply_selected_dataset_url,
     )
     dataset_url = st.text_input(
-        "Public HTTPS URL to a direct CSV",
+        "Dataset CSV URL (editable)",
         placeholder="https://example.org/classification-data.csv",
+        key="dataset_url_input",
     )
     if st.button("Load and evaluate dataset", type="primary"):
+        st.session_state.pop("generic_evaluation_result", None)
+        st.session_state.pop("remote_dataset", None)
+        st.session_state.pop("remote_dataset_url", None)
+        st.session_state.pop("remote_target_column", None)
         if not dataset_url.strip():
             st.error("Enter a public HTTPS URL to a direct CSV file.")
         else:
             try:
                 st.session_state["remote_dataset"] = read_public_csv(dataset_url)
                 st.session_state["remote_dataset_url"] = dataset_url.strip()
+                matching_dataset = next(
+                    (
+                        dataset
+                        for dataset in PUBLIC_DATASETS
+                        if dataset.url == dataset_url.strip()
+                    ),
+                    None,
+                )
+                st.session_state["remote_target_column"] = (
+                    matching_dataset.target_column
+                    if matching_dataset is not None
+                    else None
+                )
                 LOGGER.info("Downloaded a public CSV with %d rows", len(st.session_state["remote_dataset"]))
             except (ValueError, requests.RequestException, pd.errors.ParserError) as error:
                 LOGGER.exception("Dataset URL experiment failed")
@@ -306,14 +482,129 @@ elif mode == "Experiment with a dataset URL":
             f"Loaded {len(remote_data):,} rows and {len(remote_data.columns)} columns "
             f"from {st.session_state['remote_dataset_url']}."
         )
-        target_column = st.selectbox(
-            "Choose the classification target",
-            list(remote_data.columns),
-            index=len(remote_data.columns) - 1,
+        if remote_data.columns.duplicated().any():
+            st.error("This CSV has duplicate column names. Rename them before selecting a target.")
+            st.stop()
+
+        assessments = assess_target_columns(remote_data)
+        eligible_assessments = [
+            assessment for assessment in assessments if assessment.eligible
+        ]
+        if not eligible_assessments:
+            st.error(
+                "No column in this dataset can be used as a stratified classification "
+                "target. A target must have no missing values, at least two classes, "
+                "and at least 3 rows in every class."
+            )
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Column": item.column,
+                            "Classes": item.classes,
+                            "Smallest class": item.minimum_class_samples,
+                            "Missing values": item.missing_values,
+                            "Eligible target": "No",
+                            "Why unavailable": item.reason,
+                        }
+                        for item in assessments
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+            st.stop()
+
+        st.markdown("#### Eligible target columns")
+        st.caption(
+            "Choose from these columns only. Eligible targets have no missing values, "
+            "at least two classes, and at least 3 rows in every class so stratified "
+            "training and evaluation can run."
         )
-        if st.button("Run generic experiment", type="primary"):
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Target column": item.column,
+                        "Classes": item.classes,
+                        "Smallest class": item.minimum_class_samples,
+                        "Missing values": item.missing_values,
+                    }
+                    for item in eligible_assessments
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+
+        rejected_assessments = [
+            assessment for assessment in assessments if not assessment.eligible
+        ]
+        if rejected_assessments:
+            with st.expander(
+                f"Why {len(rejected_assessments)} other columns cannot be targets"
+            ):
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Column": item.column,
+                                "Classes": item.classes,
+                                "Smallest class": item.minimum_class_samples,
+                                "Missing values": item.missing_values,
+                                "Why unavailable": item.reason,
+                            }
+                            for item in rejected_assessments
+                        ]
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+        default_target = st.session_state.get("remote_target_column")
+        target_columns = [item.column for item in eligible_assessments]
+        default_target_index = target_columns.index(default_target) if default_target in target_columns else None
+        target_column = st.selectbox(
+            "Select a target column to evaluate",
+            target_columns,
+            index=default_target_index,
+        )
+        model_names = [definition.display_name for definition in MODEL_DEFINITIONS]
+        selected_model_names = st.multiselect(
+            "Models to train and compare",
+            model_names,
+            default=model_names,
+            help="All five are selected by default. Choose fewer models for a shorter run.",
+        )
+        st.caption(
+            "Clicking Run selected models fits each checked classifier again. "
+            "Changing the results-inspection dropdown only reuses the finished run."
+        )
+        selected_model_definitions = tuple(
+            definition
+            for definition in MODEL_DEFINITIONS
+            if definition.display_name in selected_model_names
+        )
+        cache_key = (
+            st.session_state["remote_dataset_url"],
+            target_column,
+            tuple(definition.slug for definition in selected_model_definitions),
+        )
+        run_experiment = st.button("Run selected models", type="primary")
+        cached_result = st.session_state.get("generic_evaluation_result")
+        show_cached_result = cached_result is not None and cached_result[0] == cache_key
+
+        if not selected_model_definitions:
+            st.info("Select at least one model to run an experiment.")
+        elif run_experiment or show_cached_result:
             try:
-                show_results(remote_data, target_column, reference=False)
+                show_results(
+                    remote_data,
+                    target_column,
+                    reference=False,
+                    model_definitions=selected_model_definitions,
+                    cache_key=cache_key,
+                )
             except (ValueError, pd.errors.ParserError) as error:
                 LOGGER.exception("Dataset URL experiment failed")
                 st.error(str(error))
