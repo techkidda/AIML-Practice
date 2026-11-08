@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pandas as pd
+
 
 @dataclass(frozen=True)
 class PublicDataset:
@@ -94,3 +96,17 @@ PUBLIC_DATASETS = (
 DATASET_BY_LABEL = {
     dataset.option_label: dataset for dataset in PUBLIC_DATASETS
 }
+
+
+def normalize_public_dataset(dataset: pd.DataFrame, url: str) -> pd.DataFrame:
+    """Normalize known UCI target formatting differences without changing features."""
+    normalized = dataset.copy()
+    adult_dataset = next(
+        (item for item in PUBLIC_DATASETS if item.name == "Adult Census Income"),
+        None,
+    )
+    if adult_dataset is not None and url == adult_dataset.url and "income" in normalized:
+        normalized["income"] = (
+            normalized["income"].astype("string").str.strip().str.rstrip(".")
+        )
+    return normalized

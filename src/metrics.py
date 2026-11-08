@@ -53,13 +53,17 @@ def evaluate_predictions(
         "Accuracy": float(accuracy_score(target, predictions)),
         "AUC": auc,
         "Precision": float(
-            precision_score(target, predictions, average="weighted", zero_division=0)
+            precision_score(target, predictions, average="macro", zero_division=0)
         ),
         "Recall": float(
-            recall_score(target, predictions, average="weighted", zero_division=0)
+            recall_score(target, predictions, average="macro", zero_division=0)
         ),
-        "F1": float(f1_score(target, predictions, average="weighted", zero_division=0)),
+        "F1": float(f1_score(target, predictions, average="macro", zero_division=0)),
         "MCC": float(matthews_corrcoef(target, predictions)),
     }
+    if len(labels) == 2 and "M" in set(map(str, labels)):
+        metrics["Malignant Recall (M)"] = float(
+            recall_score(target, predictions, pos_label="M", zero_division=0)
+        )
     matrix = confusion_matrix(target, predictions, labels=labels)
     return metrics, matrix, labels

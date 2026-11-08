@@ -1,141 +1,146 @@
-# Classification Models: Wisconsin Diagnostic Dataset
+# Classification Model Lab
 
-## Problem statement
-Compare five supervised classification algorithms for predicting whether a
-breast mass is malignant or benign, and provide an interactive way to evaluate
-the saved models on labeled test data.
+## a. Problem statement
 
-## Dataset description
-The Breast Cancer Wisconsin (Diagnostic) dataset is published by the UCI
-Machine Learning Repository. It contains 569 instances, 30 numeric diagnostic
-features, and a binary diagnosis target (`M` = malignant, `B` = benign). The
-record identifier is retained in the source CSV for provenance and excluded
-from model features. The held-out test data is stratified and contains no
-training rows.
+This project compares five supervised classification models for the Wisconsin
+Diagnostic Breast Cancer dataset. The target indicates whether a breast mass
+is malignant (`M`) or benign (`B`). The Streamlit app demonstrates model
+evaluation on held-out labeled data and allows separate experiments using
+public CSV datasets.
 
-- Source: <https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic>
-- CSV: `data/breast_cancer_wisconsin_diagnostic.csv`
-- Test data: `test_data.csv`
+This project is an educational example, not a medical diagnostic tool.
 
-## GitHub Repository Link
+## b. Dataset description
 
-Repository URL: https://github.com/techkidda/AIML-Practice
+The reference dataset is the **Breast Cancer Wisconsin (Diagnostic)** dataset
+from the UCI Machine Learning Repository.
 
-## Live Streamlit App Link
+- **Instances:** 569
+- **Model features:** 30 numeric measurements
+- **Target:** `Diagnosis` (`M` = malignant, `B` = benign)
+- **Class counts:** 212 malignant and 357 benign
+- **Excluded field:** `ID` is retained in the source data for provenance but
+  removed before model training.
+- **Source:** [UCI Machine Learning Repository — Breast Cancer Wisconsin
+  (Diagnostic)](https://archive.ics.uci.edu/dataset/17/breast+cancer+wisconsin+diagnostic)
+- **Included source CSV:** `data/breast_cancer_wisconsin_diagnostic.csv`
+- **Held-out test CSV:** `test_data.csv`
 
-The app has not been deployed yet. After pushing this repository, deploy
-`app.py` from <https://share.streamlit.io/> using the steps below.
+The 30 model features are ten measurements—radius, texture, perimeter, area,
+smoothness, compactness, concavity, concave points, symmetry, and fractal
+dimension—recorded as mean, standard error, and worst values.
+
+
+## c. GitHub repository link
+
+[techkidda/AIML-Practice](https://github.com/techkidda/AIML-Practice)
+
+## Live Streamlit app
+
+The app is **not deployed yet**, so there is no live app URL to share. See
+[Streamlit Community Cloud deployment](#streamlit-community-cloud-deployment)
+for the manual deployment steps.
 
 ## Execution screenshot
 
+![Classification Model Lab comparing saved models](screenshots/model-comparison.png)
+
 ## Run locally
 
+### Windows PowerShell
+
 ```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m src.train_models
 streamlit run app.py
 ```
 
-Upload a labeled CSV with the same feature columns and target column to evaluate
-the saved reference models. The app also supports a public HTTPS CSV URL for a
-separate train/holdout experiment on a user-selected dataset.
-Open **User Guide — How to use** in the app's workspace selector for in-app
-instructions covering both workflows, valid targets, the train/test split, and
-how to interpret the evaluation metrics.
+If PowerShell script activation is disabled, use Command Prompt:
 
-## Models used
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+python -m src.train_models
+streamlit run app.py
+```
 
-All models use the same stratified 80/20 split (random seed 42). Preprocessing
-is fitted on training data only and packaged with each saved model.
+### macOS / Linux
 
-| ML Model Name | Accuracy | AUC | Precision | Recall | F1 | MCC |
-|---|---:|---:|---:|---:|---:|---:|
-| Logistic Regression | 0.965 | 0.996 | 0.965 | 0.965 | 0.965 | 0.925 |
-| Decision Tree | 0.904 | 0.947 | 0.907 | 0.904 | 0.901 | 0.793 |
-| K-Nearest Neighbors | 0.956 | 0.983 | 0.957 | 0.956 | 0.956 | 0.906 |
-| Naive Bayes | 0.921 | 0.989 | 0.921 | 0.921 | 0.920 | 0.829 |
-| Support Vector Machine | 0.965 | 0.995 | 0.965 | 0.965 | 0.965 | 0.925 |
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+streamlit run app.py
+```
+
+## d. Models and evaluation
+
+The five reference models use the same stratified 80/20 split (random seed 69).
+This yields 455 training rows and 114 held-out test rows. Preprocessing is
+fitted within training folds. Logistic Regression, Decision Tree, K-Nearest
+Neighbors, and Support Vector Machine are tuned using `GridSearchCV`; Gaussian
+Naive Bayes uses its standard configuration. Hyperparameter selection and
+cross-validation use only the training portion. The untouched holdout is used
+for the final comparison.
+
+The table reports holdout metrics. Precision, Recall, and F1 are macro
+averages, so Recall is not a duplicate of Accuracy. `Malignant Recall (M)`
+reports the fraction of malignant holdout cases correctly identified.
+
+| ML Model Name | Accuracy | AUC | Precision (macro) | Recall (macro) | F1 (macro) | MCC | Malignant Recall (M) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Logistic Regression | 0.974 | 0.995 | 0.974 | 0.969 | 0.972 | 0.943 | 0.952 |
+| Decision Tree | 0.912 | 0.945 | 0.909 | 0.901 | 0.905 | 0.810 | 0.857 |
+| K-Nearest Neighbors | 0.939 | 0.982 | 0.948 | 0.922 | 0.932 | 0.869 | 0.857 |
+| Gaussian Naive Bayes | 0.921 | 0.989 | 0.922 | 0.908 | 0.914 | 0.829 | 0.857 |
+| Support Vector Machine | 0.974 | 0.993 | 0.980 | 0.964 | 0.971 | 0.944 | 0.929 |
+
 
 ### Observations
 
 | ML Model Name | Observation about model performance |
 |---|---|
-| Logistic Regression | Strong linear baseline; it produced the highest AUC (0.996), indicating excellent ranking of the two classes. |
-| Decision Tree | Easiest to interpret, but it had the lowest test accuracy and MCC, suggesting weaker generalization on this split. |
-| K-Nearest Neighbors | Strong test performance after feature scaling, with accuracy above 95% and balanced weighted precision/recall. |
-| Naive Bayes | Competitive AUC but lower accuracy than the top models; its conditional-independence assumption may limit classification quality. |
-| Support Vector Machine | Tied for top test accuracy and marginally ahead on F1 and MCC; it remains a strong, well-balanced classifier on this split. |
-| Overall, Winner for your dataset? | Support Vector Machine by a small F1/MCC margin. Logistic Regression has the highest AUC (0.996), and both achieve 0.965 accuracy. |
+| Logistic Regression | Tied for top holdout accuracy (111 of 114 correct) and identified 40 of 42 malignant cases, missing two. |
+| Decision Tree | The most interpretable model, but it missed six malignant cases and had the lowest holdout MCC. |
+| K-Nearest Neighbors | Strong cross-validation accuracy, but it missed six malignant cases on the holdout. |
+| Gaussian Naive Bayes | Had competitive AUC, but missed six malignant cases on the holdout. |
+| Support Vector Machine | Also classified 111 of 114 rows correctly and had the highest holdout MCC by a very small margin; it missed three malignant cases. |
+| Overall winner | There is no statistically established winner from this single 114-row holdout. Logistic Regression had higher malignant recall; SVM's 0.001 MCC advantage is negligible. The overlapping cross-validation results and small holdout differences do not establish superiority. Neither model is intended for clinical use. |
+
+For Logistic Regression, the confusion matrix contains two false negatives
+(malignant cases predicted benign) and one false positive. For SVM, it contains
+three false negatives and no false positives. The app displays the selected
+model's confusion matrix and classification report, and highlights malignant
+false negatives for the reference dataset.
+
+## App features
+
+- Score saved reference models against the included or uploaded labeled test
+  CSV without retraining.
+- Choose a model and view its metrics, confusion matrix, and classification
+  report.
+- Run training and holdout experiments on a public CSV URL, choose an eligible
+  target column, and select which models to train.
+- See progress, elapsed time, and an approximate remaining-time estimate while
+  experiments run.
+- Open **User Guide — How to use** in the app for in-app instructions.
 
 ## Streamlit Community Cloud deployment
 
-Push this repository to GitHub, sign in at
-<https://share.streamlit.io/>, choose **Create app**, select this repository,
-branch, and `app.py`, then deploy. Streamlit Community Cloud currently requires
-this account-authorized flow; the app does not collect credentials or attempt
-to provision a deployment in the background.
+1. Push this repository to GitHub.
+2. Sign in to [Streamlit Community Cloud](https://share.streamlit.io/) with an
+   authorized GitHub account.
+3. Create an app using this repository, the desired branch, and `app.py`.
+4. Confirm deployment in the Streamlit interface.
+
+Deployment requires account authorization and confirmation. This project does
+not collect credentials or deploy itself in the background.
 
 ## Logging
 
 Application events are written to `logs/app.log` and the console. The active
-log rotates at local midnight or 30 MiB, whichever occurs first, and retains
-up to seven rotated files.
-
-
-## Create venv
-
-Bash
-### 1. Install Python 3 and venv support (if not already installed)
-sudo dnf install -y python3 python3-pip
-
-### 2. Navigate to your project directory
-cd /path/to/your/project
-
-### 3. Create the virtual environment (named 'venv')
-python3 -m venv venv
-
-### 4. Activate the virtual environment
-source venv/bin/activate
-
-### 5. Verify activation (should point to project's venv)
-which python
-
-### 6. Deactivate when finished
-deactivate
-
-## Windows
-### 1. Install Python 3 and venv support (if not already installed)
-sudo dnf install -y python3 python3-pip
-
-### 2. Navigate to your project directory
-cd /path/to/your/project
-
-### 3. Create the virtual environment (named 'venv')
-python3 -m venv venv
-
-### 4. Activate the virtual environment
-source venv/bin/activate
-
-### 5. Verify activation (should point to project's venv)
-which python
-
-### 6. Deactivate when finished
-deactivate
-
-
-## Bash
-
-### 1. Navigate to your project directory
-cd /path/to/your/project
-
-### 2. Create the virtual environment
-python3 -m venv venv
-
-### 3. Activate the virtual environment
-source venv/bin/activate
-
-### 4. Verify activation
-which python
-
-### 5. Deactivate when finished
-deactivate
+log rotates at local midnight or 30 MiB, whichever occurs first, and retains up
+to seven rotated files.

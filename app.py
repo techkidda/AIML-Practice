@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import ipaddress
+import json
 import logging
 import socket
 import time
@@ -26,8 +27,9 @@ from src.public_datasets import (
     CUSTOM_DATASET_OPTION,
     DATASET_BY_LABEL,
     PUBLIC_DATASETS,
+    normalize_public_dataset,
 )
-from src.preprocessing import build_pipeline
+from src.model_selection import fit_with_cross_validation
 from src.progress import estimate_remaining_seconds, format_duration
 from src.target_columns import assess_target_columns
 
@@ -54,13 +56,15 @@ def apply_selected_dataset_url() -> None:
 
 def validate_labeled_data(
     dataset: pd.DataFrame,
-    target_column: str,
+    target_column: str | None,
     expected_features: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     if dataset.empty:
         raise ValueError("The CSV contains no data rows.")
     if dataset.columns.duplicated().any():
         raise ValueError("The CSV contains duplicate column names.")
+    if not target_column:
+        raise ValueError("Select an eligible target column before evaluation.")
     if target_column not in dataset.columns:
         raise ValueError(f"Target column {target_column!r} is missing from the CSV.")
     if dataset[target_column].isna().any():
@@ -145,6 +149,16 @@ def load_saved_model(slug: str, modified_ns: int):
     return joblib.load(artifact_path)
 
 
+def load_saved_model_summaries() -> dict[str, dict[str, object]]:
+    metrics_path = PROJECT_ROOT / "metrics.json"
+    if not metrics_path.is_file():
+        return {}
+    summaries = json.loads(metrics_path.read_text(encoding="utf-8"))
+    if not isinstance(summaries, dict):
+        raise ValueError("metrics.json must contain a JSON object.")
+    return summaries
+
+
 def evaluate_all(
     dataset: pd.DataFrame,
     target_column: str,
@@ -178,6 +192,7 @@ def evaluate_all(
 
     rows = []
     details: dict[str, tuple[object, object, list[object]]] = {}
+    saved_summaries = load_saved_model_summaries() if reference else {}
     for model_index, definition in enumerate(model_definitions, start=1):
         model_started_at = time.perf_counter()
         model_completed = False
@@ -196,12 +211,37 @@ def evaluate_all(
             else:
                 module = importlib.import_module(definition.module)
                 classifier = getattr(module, definition.class_name)().build()
-                model = build_pipeline(classifier, x_train).fit(x_train, y_train)
+                model, cross_validation, best_parameters = fit_with_cross_validation(
+                    definition.slug, classifier, x_train, y_train
+                )
 
             model_metrics, matrix, labels = evaluate_predictions(
                 model, evaluation_features, evaluation_target
             )
-            rows.append({"ML Model Name": definition.display_name, **model_metrics})
+            row = {"ML Model Name": definition.display_name, **model_metrics}
+            if not reference:
+                for metric, scores in cross_validation.items():
+                    if metric not in ("Accuracy", "F1", "Malignant Recall (M)"):
+                        continue
+                    row[f"CV {metric} (mean ± std)"] = (
+                        f"{scores['mean']:.3f} ± {scores['std']:.3f}"
+                    )
+                row["Tuned parameters"] = str(best_parameters)
+            else:
+                summary = saved_summaries.get(definition.display_name, {})
+                if isinstance(summary, dict):
+                    cross_validation = summary.get("Cross-validation", {})
+                    if isinstance(cross_validation, dict):
+                        for metric, scores in cross_validation.items():
+                            if metric not in ("Accuracy", "F1", "Malignant Recall (M)"):
+                                continue
+                            if isinstance(scores, dict) and "mean" in scores and "std" in scores:
+                                row[f"CV {metric} (mean ± std)"] = (
+                                    f"{scores['mean']:.3f} ± {scores['std']:.3f}"
+                                )
+                    if "Best parameters" in summary:
+                        row["Tuned parameters"] = str(summary["Best parameters"])
+            rows.append(row)
             details[definition.display_name] = (model, matrix, labels)
             model_completed = True
         finally:
@@ -341,14 +381,33 @@ def show_results(
             )
 
     st.subheader("Model comparison")
+    comparison_results = results.drop(columns=["Tuned parameters"], errors="ignore")
     st.dataframe(
-        results.style.format(
-            {name: "{:.3f}" for name in ("Accuracy", "AUC", "Precision", "Recall", "F1", "MCC")},
+        comparison_results.style.format(
+            {
+                name: "{:.3f}"
+                for name in (
+                    "Accuracy",
+                    "AUC",
+                    "Precision",
+                    "Recall",
+                    "F1",
+                    "MCC",
+                    "Malignant Recall (M)",
+                )
+            },
             na_rep="N/A",
         ),
         width="stretch",
         hide_index=True,
     )
+    if "Tuned parameters" in results:
+        with st.expander("Selected hyperparameters"):
+            st.dataframe(
+                results[["ML Model Name", "Tuned parameters"]],
+                width="stretch",
+                hide_index=True,
+            )
 
     selected_name = st.selectbox("Inspect results for a model", list(details))
     model, matrix, labels = details[selected_name]
@@ -373,6 +432,12 @@ def show_results(
         figure.tight_layout()
         st.pyplot(figure)
         plt.close(figure)
+        if "M" in labels:
+            malignant_index = labels.index("M")
+            false_negatives = int(
+                matrix[malignant_index].sum() - matrix[malignant_index, malignant_index]
+            )
+            st.metric("Malignant cases missed (false negatives)", false_negatives)
     with right:
         st.markdown(f"#### {selected_name}: classification report")
         model_features, model_target = validate_labeled_data(dataset, target_column)
@@ -398,8 +463,9 @@ def show_results(
 
 st.title("Classification Model Lab")
 st.markdown(
-    "Compare five classifiers with a held-out test set. Explore the committed "
-    "Wisconsin models or run a separate experiment on your own public CSV."
+    "Compare five classifiers using tuned training-fold cross-validation and an "
+    "untouched holdout. Explore the committed Wisconsin models or experiment "
+    "with a public CSV."
 )
 
 mode = st.sidebar.radio(
@@ -431,7 +497,9 @@ if mode == "User Guide — How to use":
             "1. Keep the included test data, or upload a labeled CSV.\n"
             "2. For an upload, include the same 30 feature columns and the "
             "`Diagnosis` target (`M` or `B`).\n"
-            "3. Compare metrics, then choose a model to inspect its confusion matrix "
+            "3. Compare held-out test metrics and the saved training-fold "
+            "cross-validation mean ± std, "
+            "then inspect a model's confusion matrix "
             "and classification report."
         )
     with guide_generic:
@@ -454,6 +522,8 @@ if mode == "User Guide — How to use":
     st.markdown(
         "- The app uses a stratified random **80% training / 20% test split** "
         "with `random_state=69`; the same dataset and target produce the same split.\n"
+        "- Grid search and stratified cross-validation run only on the training "
+        "portion; the test portion is held back for the final model comparison.\n"
         "- Preprocessing (missing-value imputation, categorical encoding, and "
         "numeric scaling) is fitted using training data only.\n"
         "- Each checked model is trained when you click **Run selected models**. "
@@ -480,8 +550,9 @@ if mode == "User Guide — How to use":
         "| Accuracy | Fraction of predictions that are correct. |\n"
         "| AUC | How well the model separates/ranks classes; higher is better. |\n"
         "| Precision | How often predictions for a class are correct. |\n"
-        "| Recall | How many actual examples of a class the model finds. |\n"
-        "| F1 | Balance between precision and recall. |\n"
+        "| Recall | Macro-average of how many actual examples of each class the model finds. |\n"
+        "| Malignant Recall (M) | For the reference dataset, the fraction of malignant cases found. |\n"
+        "| F1 | Macro-average balance between precision and recall. |\n"
         "| MCC | Balanced summary of prediction quality; 1 is perfect, 0 is near "
         "random, and -1 is total disagreement. |"
     )
@@ -489,11 +560,14 @@ if mode == "User Guide — How to use":
         "Use the confusion matrix to see correct and incorrect predictions by "
         "class. The classification report shows precision, recall, F1, and sample "
         "count for each class. Metrics are measured on the held-out test portion, "
-        "not on the training rows."
+        "not on the training rows. The app also calls out malignant false "
+        "negatives (malignant cases predicted benign) for the reference dataset."
     )
     st.info(
         "Saved reference models only score the included or uploaded test data. "
-        "Generic URL experiments train new models on their training split."
+        "Generic URL experiments tune and cross-validate models within the training "
+        "split, then score the untouched holdout. Cross-validation mean ± standard "
+        "deviation guides model selection; the final holdout is the primary comparison."
     )
 elif mode == "Saved reference models":
     st.sidebar.caption(
@@ -544,7 +618,7 @@ elif mode == "Experiment with a dataset URL":
             st.error("Enter a public HTTPS URL to a direct CSV file.")
         else:
             try:
-                st.session_state["remote_dataset"] = read_public_csv(dataset_url)
+                remote_dataset = read_public_csv(dataset_url)
                 st.session_state["remote_dataset_url"] = dataset_url.strip()
                 matching_dataset = next(
                     (
@@ -554,6 +628,11 @@ elif mode == "Experiment with a dataset URL":
                     ),
                     None,
                 )
+                if matching_dataset is not None:
+                    remote_dataset = normalize_public_dataset(
+                        remote_dataset, dataset_url.strip()
+                    )
+                st.session_state["remote_dataset"] = remote_dataset
                 st.session_state["remote_target_column"] = (
                     matching_dataset.target_column
                     if matching_dataset is not None

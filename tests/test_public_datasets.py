@@ -1,10 +1,13 @@
 import unittest
 from urllib.parse import urlparse
 
+import pandas as pd
+
 from src.public_datasets import (
     CUSTOM_DATASET_OPTION,
     DATASET_BY_LABEL,
     PUBLIC_DATASETS,
+    normalize_public_dataset,
 )
 
 
@@ -26,6 +29,17 @@ class PublicDatasetCatalogTests(unittest.TestCase):
                 self.assertTrue(dataset.target_column)
                 self.assertNotIn(dataset.url, urls)
                 urls.add(dataset.url)
+
+    def test_adult_target_normalizes_train_test_punctuation_to_two_classes(self):
+        adult = next(item for item in PUBLIC_DATASETS if item.name == "Adult Census Income")
+        dataset = pd.DataFrame(
+            {"income": [" <=50K", " >50K", " <=50K.", " >50K."]}
+        )
+
+        normalized = normalize_public_dataset(dataset, adult.url)
+
+        self.assertEqual(normalized["income"].tolist(), ["<=50K", ">50K", "<=50K", ">50K"])
+        self.assertEqual(normalized["income"].nunique(), 2)
 
 
 if __name__ == "__main__":
