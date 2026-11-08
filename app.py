@@ -19,7 +19,12 @@ import streamlit as st
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 
-from src.dataset import PROJECT_ROOT, TARGET_COLUMN, load_reference_dataset
+from src.dataset import (
+    IGNORED_COLUMNS,
+    PROJECT_ROOT,
+    TARGET_COLUMN,
+    load_reference_dataset,
+)
 from src.logging_config import configure_logging
 from src.metrics import evaluate_predictions
 from src.model_registry import MODEL_DEFINITIONS, ModelDefinition
@@ -74,6 +79,7 @@ def validate_labeled_data(
     if features.empty:
         raise ValueError("The CSV must contain at least one feature column.")
     if expected_features is not None:
+        features = features.drop(columns=list(IGNORED_COLUMNS), errors="ignore")
         missing = [column for column in expected_features if column not in features.columns]
         extra = [column for column in features.columns if column not in expected_features]
         if missing or extra:
@@ -496,7 +502,7 @@ if mode == "User Guide — How to use":
         st.markdown(
             "1. Keep the included test data, or upload a labeled CSV.\n"
             "2. For an upload, include the same 30 feature columns and the "
-            "`Diagnosis` target (`M` or `B`).\n"
+            "`Diagnosis` target (`M` or `B`). An extra `ID` column is ignored.\n"
             "3. Compare the holdout metrics with the saved training-fold "
             "cross-validation mean ± std columns.\n"
             "4. Expand **Selected hyperparameters** to see the settings chosen "

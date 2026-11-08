@@ -37,10 +37,6 @@ The app is **deployed ** at [Web-App] (https://gaurav-patil-ml-assignment-2.stre
 [Streamlit Community Cloud deployment](#streamlit-community-cloud-deployment)
 for the manual deployment steps.
 
-## Execution screenshot
-
-![Classification Model Lab comparing saved models](screenshots/model-comparison.png)
-
 ## Run locally
 
 ### Windows PowerShell
@@ -115,7 +111,7 @@ false negatives for the reference dataset.
 ## App features
 
 - Score saved reference models against the included or uploaded labeled test
-  CSV without retraining.
+  CSV without retraining. The original source `ID` column is ignored if present.
 - Choose a model and view its metrics, confusion matrix, and classification
   report.
 - Run training and holdout experiments on a public CSV URL, choose an eligible
