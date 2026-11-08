@@ -39,6 +39,33 @@ streamlit run app.py
 Upload a labeled CSV with the same feature columns and target column to evaluate
 the saved reference models. The app also supports a public HTTPS CSV URL for a
 separate train/holdout experiment on a user-selected dataset.
+Open **User Guide — How to use** in the app's workspace selector for in-app
+instructions covering both workflows, valid targets, the train/test split, and
+how to interpret the evaluation metrics.
+
+## Models used
+
+All models use the same stratified 80/20 split (random seed 42). Preprocessing
+is fitted on training data only and packaged with each saved model.
+
+| ML Model Name | Accuracy | AUC | Precision | Recall | F1 | MCC |
+|---|---:|---:|---:|---:|---:|---:|
+| Logistic Regression | 0.965 | 0.996 | 0.965 | 0.965 | 0.965 | 0.925 |
+| Decision Tree | 0.904 | 0.947 | 0.907 | 0.904 | 0.901 | 0.793 |
+| K-Nearest Neighbors | 0.956 | 0.983 | 0.957 | 0.956 | 0.956 | 0.906 |
+| Naive Bayes | 0.921 | 0.989 | 0.921 | 0.921 | 0.920 | 0.829 |
+| Support Vector Machine | 0.965 | 0.995 | 0.965 | 0.965 | 0.965 | 0.925 |
+
+### Observations
+
+| ML Model Name | Observation about model performance |
+|---|---|
+| Logistic Regression | Strong linear baseline; it produced the highest AUC (0.996), indicating excellent ranking of the two classes. |
+| Decision Tree | Easiest to interpret, but it had the lowest test accuracy and MCC, suggesting weaker generalization on this split. |
+| K-Nearest Neighbors | Strong test performance after feature scaling, with accuracy above 95% and balanced weighted precision/recall. |
+| Naive Bayes | Competitive AUC but lower accuracy than the top models; its conditional-independence assumption may limit classification quality. |
+| Support Vector Machine | Tied for top test accuracy and marginally ahead on F1 and MCC; it remains a strong, well-balanced classifier on this split. |
+| Overall, Winner for your dataset? | Support Vector Machine by a small F1/MCC margin. Logistic Regression has the highest AUC (0.996), and both achieve 0.965 accuracy. |
 
 ## Streamlit Community Cloud deployment
 

@@ -404,10 +404,98 @@ st.markdown(
 
 mode = st.sidebar.radio(
     "Choose a workspace",
-    ("Saved reference models", "Experiment with a dataset URL", "Deployment setup"),
+    (
+        "User Guide — How to use",
+        "Saved reference models",
+        "Experiment with a dataset URL",
+        "Deployment setup",
+    ),
 )
 
-if mode == "Saved reference models":
+if mode == "User Guide — How to use":
+    st.title("How to use Classification Model Lab")
+    st.markdown(
+        "Use this guide to choose a workflow, evaluate the classifiers, and "
+        "understand the results."
+    )
+
+    st.header("1. Choose an evaluation workflow")
+    guide_reference, guide_generic = st.columns(2)
+    with guide_reference:
+        st.subheader("Saved reference models")
+        st.markdown(
+            "Use the models already trained on the Wisconsin Breast Cancer dataset. "
+            "This workflow **does not train or retrain** models."
+        )
+        st.markdown(
+            "1. Keep the included test data, or upload a labeled CSV.\n"
+            "2. For an upload, include the same 30 feature columns and the "
+            "`Diagnosis` target (`M` or `B`).\n"
+            "3. Compare metrics, then choose a model to inspect its confusion matrix "
+            "and classification report."
+        )
+    with guide_generic:
+        st.subheader("Experiment with a dataset URL")
+        st.markdown(
+            "Train selected classifiers on a new CSV. The five sample UCI datasets "
+            "meet the 600-row / 12-feature guideline."
+        )
+        st.markdown(
+            "1. Select a sample dataset, or choose the custom option and paste a "
+            "public HTTPS URL to a direct CSV (maximum 10 MiB).\n"
+            "2. Click **Load and evaluate dataset**.\n"
+            "3. Review eligible target columns and select the target you want to "
+            "predict.\n"
+            "4. Select one or more classifiers. All five are selected by default.\n"
+            "5. Click **Run selected models** to train and compare them."
+        )
+
+    st.header("2. How the generic experiment works")
+    st.markdown(
+        "- The app uses a stratified random **80% training / 20% test split** "
+        "with `random_state=42`; the same dataset and target produce the same split.\n"
+        "- Preprocessing (missing-value imputation, categorical encoding, and "
+        "numeric scaling) is fitted using training data only.\n"
+        "- Each checked model is trained when you click **Run selected models**. "
+        "These experiment models are temporary and do not replace the saved models.\n"
+        "- While the run is active, the progress display shows the current model, "
+        "elapsed time, and an approximate remaining time. After a run, changing "
+        "**Inspect results for a model** reuses its results without training again."
+    )
+
+    st.header("3. Choose a valid target")
+    st.markdown(
+        "The target is the column the classifiers will predict. The app lists "
+        "eligible columns with their class counts. A target must have no missing "
+        "values, at least two classes, at least three examples in every class, "
+        "and fit in the stratified test split. Other columns are explained in the "
+        "“Why other columns cannot be targets” expander. Identifier-like or "
+        "continuous columns are usually not suitable class labels."
+    )
+
+    st.header("4. Read the results")
+    st.markdown(
+        "| Metric | What it tells you |\n"
+        "|---|---|\n"
+        "| Accuracy | Fraction of predictions that are correct. |\n"
+        "| AUC | How well the model separates/ranks classes; higher is better. |\n"
+        "| Precision | How often predictions for a class are correct. |\n"
+        "| Recall | How many actual examples of a class the model finds. |\n"
+        "| F1 | Balance between precision and recall. |\n"
+        "| MCC | Balanced summary of prediction quality; 1 is perfect, 0 is near "
+        "random, and -1 is total disagreement. |"
+    )
+    st.markdown(
+        "Use the confusion matrix to see correct and incorrect predictions by "
+        "class. The classification report shows precision, recall, F1, and sample "
+        "count for each class. Metrics are measured on the held-out test portion, "
+        "not on the training rows."
+    )
+    st.info(
+        "Saved reference models only score the included or uploaded test data. "
+        "Generic URL experiments train new models on their training split."
+    )
+elif mode == "Saved reference models":
     st.sidebar.caption(
         "Saved pre-trained models are loaded as-is. This workflow does not retrain them; "
         "uploaded test data is used only for scoring."
