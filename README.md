@@ -100,7 +100,7 @@ reports the fraction of malignant holdout cases correctly identified.
 | K-Nearest Neighbors | Strong cross-validation accuracy, but it missed six malignant cases on the holdout. |
 | Gaussian Naive Bayes | Had competitive AUC, but missed six malignant cases on the holdout. |
 | Support Vector Machine | Also classified 111 of 114 rows correctly and had the highest holdout MCC by a very small margin; it missed three malignant cases. |
-| Overall winner | There is no statistically established winner from this single 114-row holdout. Logistic Regression had higher malignant recall; SVM's 0.001 MCC advantage is negligible. The overlapping cross-validation results and small holdout differences do not establish superiority. Neither model is intended for clinical use. |
+| Overall winner | Logistic Regression is the preferred model for this evaluation because malignant recall was the primary selection criterion, and it identified the most malignant cases on the holdout (40/42; 95.2%). It tied SVM on accuracy and missed one fewer malignant case. This is a criterion-based choice on one holdout—not evidence of statistically significant superiority or clinical readiness. |
 
 For Logistic Regression, the confusion matrix contains two false negatives
 (malignant cases predicted benign) and one false positive. For SVM, it contains
@@ -116,6 +116,10 @@ false negatives for the reference dataset.
   report.
 - Run training and holdout experiments on a public CSV URL, choose an eligible
   target column, and select which models to train.
+- Generate per-model performance observations and select a preferred generic
+  experiment model by the highest mean cross-validation macro-F1. The report
+  also shows the preferred model's holdout scores and clarifies that this
+  criterion does not establish statistical significance.
 - See progress, elapsed time, and an approximate remaining-time estimate while
   experiments run.
 - Open **User Guide — How to use** in the app for in-app instructions.
