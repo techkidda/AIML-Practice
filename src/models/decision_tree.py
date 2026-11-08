@@ -9,5 +9,5 @@ class DecisionTreeModel:
         return DecisionTreeClassifier(
             max_depth=5,
             min_samples_leaf=3,
-            random_state=42,
+            random_state=69,
         )
