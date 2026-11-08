@@ -33,7 +33,7 @@ from src.target_columns import assess_target_columns
 
 LOGGER = logging.getLogger("ml_practice.app")
 MAX_REMOTE_DATASET_BYTES = 10 * 1024 * 1024
-RANDOM_STATE = 42
+RANDOM_STATE = 69
 
 st.set_page_config(
     page_title="Model Lab | Classification",
@@ -453,7 +453,7 @@ if mode == "User Guide — How to use":
     st.header("2. How the generic experiment works")
     st.markdown(
         "- The app uses a stratified random **80% training / 20% test split** "
-        "with `random_state=42`; the same dataset and target produce the same split.\n"
+        "with `random_state=69`; the same dataset and target produce the same split.\n"
         "- Preprocessing (missing-value imputation, categorical encoding, and "
         "numeric scaling) is fitted using training data only.\n"
         "- Each checked model is trained when you click **Run selected models**. "
